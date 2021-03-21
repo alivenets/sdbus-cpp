@@ -59,6 +59,37 @@ Connection::Connection(std::unique_ptr<ISdBus>&& interface, remote_system_bus_t,
 {
 }
 
+Connection::Connection(std::unique_ptr<ISdBus>&& interface, custom_session_bus_t, const std::string& addr)
+    : Connection(std::move(interface), [this, &addr](sd_bus **bus){
+        sd_bus *b;
+        int r = iface_->sd_bus_new(&b);
+        if (r < 0)
+            return r;
+
+        r = iface_->sd_bus_set_address(b, addr.c_str());
+        if (r < 0)
+            return r;
+
+        r = iface_->sd_bus_set_bus_client(b, true);
+        if (r < 0)
+            return r;
+
+        // for https://github.com/systemd/systemd/blob/fee6441601c979165ebcbb35472036439f8dad5f/src/libsystemd/sd-bus/sd-bus.c#L1381
+        // here, we'd rather make the bus as untrusted
+        r = iface_->sd_bus_set_trusted(b, true);
+        if (r < 0)
+            return r;
+
+        r = iface_->sd_bus_start(b);
+        if (r < 0)
+            return r;
+
+        *bus = b;
+        return 0;
+    })
+{
+
+}
 Connection::~Connection()
 {
     Connection::leaveEventLoop();
@@ -506,6 +537,14 @@ std::unique_ptr<sdbus::IConnection> createSessionBusConnection(const std::string
     auto conn = createSessionBusConnection();
     conn->requestName(name);
     return conn;
+}
+
+std::unique_ptr<sdbus::IConnection> createSessionBusConnectionWithAddress(const std::string &addr)
+{
+    auto interface = std::make_unique<sdbus::internal::SdBus>();
+    assert(interface != nullptr);
+    constexpr sdbus::internal::Connection::custom_session_bus_t custom_session_bus;
+    return std::make_unique<sdbus::internal::Connection>(std::move(interface), custom_session_bus, addr);
 }
 
 std::unique_ptr<sdbus::IConnection> createRemoteSystemBusConnection(const std::string& host)
